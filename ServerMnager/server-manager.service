@@ -1,0 +1,19 @@
+[Unit]
+Description=Server Manager
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=__USER__
+WorkingDirectory=__DIR__
+ExecStart=__NODE__ server.js
+Restart=on-failure
+RestartSec=5
+# порт 80 без root
+AmbientCapabilities=CAP_NET_BIND_SERVICE
+KillMode=control-group
+TimeoutStopSec=70
+
+[Install]
+WantedBy=multi-user.target
