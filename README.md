@@ -27,14 +27,9 @@
 Откройте терминал в папке проекта и выполните команду:
 
 ```bash
-npm install
-```
-
-Если при установке или запуске возникли проблемы с зависимостями, в Windows PowerShell/Linux можно удалить папку `node_modules` и установить зависимости заново:
-
-```powershell
 Remove-Item -Recurse -Force node_modules
 npm install
+node install-m7.js
 ```
 
 ### 4. Запустите панель
