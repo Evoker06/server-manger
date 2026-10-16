@@ -29,7 +29,7 @@
 ```bash
 Remove-Item -Recurse -Force node_modules
 npm install
-node install-m8.js
+node install-m9.js
 ```
 
 ### 4. Запустите панель
