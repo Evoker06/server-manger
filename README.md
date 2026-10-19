@@ -106,11 +106,6 @@ sudo systemctl enable --now server-manager
 
 **Windows.** Самый простой способ — Планировщик заданий: «Создать задачу» → триггер «При запуске компьютера» → действие «Запуск программы» `node.exe`, аргумент `server.js`, «Рабочая папка» — папка проекта. Либо используйте NSSM/WinSW.
 
-### Перенос из Windows в Linux
-
-`node tools/linux-setup.js --root /opt/server-manager --files /srv/servers --map "E:\Bof\Bof=/srv/servers/bof"` — исправит пути в `config.json` и в базе приложений. Файлы проектов скопируйте на новый компьютер сами.
-
----
 
 ## 3. Что где лежит
 
