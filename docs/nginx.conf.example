@@ -1,0 +1,43 @@
+# Пример настройки nginx перед Server Manager (HTTPS + большие файлы).
+# Положите в /etc/nginx/conf.d/server-manager.conf, замените домен и пути сертификатов, затем: nginx -t && systemctl reload nginx
+# В config.json панели: "host": "127.0.0.1" и "trustProxy": 1 (чтобы панель видела настоящие адреса пользователей).
+
+server {
+    listen 443 ssl http2;
+    server_name panel.example.com;
+
+    ssl_certificate     /etc/letsencrypt/live/panel.example.com/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/panel.example.com/privkey.pem;
+
+    # Файлы загружаются частями (по умолчанию 16 МБ, максимум 64 МБ), поэтому лимит тела запроса — с запасом на одну часть.
+    # НЕ ставьте здесь 500 ГБ и не отключайте лимит совсем: большие файлы идут множеством небольших запросов.
+    client_max_body_size 100m;
+
+    # Не копить тело запроса на диске nginx — сразу отдавать панели потоком
+    proxy_request_buffering off;
+    # Не буферизовать скачивание файлов на диск nginx: файл идёт в сеть по мере чтения
+    proxy_buffering off;
+
+    # Ожидание: до 20 минут (как в настройках панели timeouts.*)
+    proxy_connect_timeout 60s;
+    proxy_send_timeout    1200s;
+    proxy_read_timeout    1200s;
+    send_timeout          1200s;
+
+    location / {
+        proxy_pass http://127.0.0.1:3000;     # порт из config.json
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        # WebSocket (консоль приложений)
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection $connection_upgrade;
+    }
+}
+
+map $http_upgrade $connection_upgrade {
+    default upgrade;
+    ''      close;
+}

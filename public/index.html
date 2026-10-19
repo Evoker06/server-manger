@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Server Manager</title>
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<div id="login" class="login"><div class="loginbox"><div class="brand">SERVER<span>MANAGER</span></div><h1>Вход</h1>
+<input id="u" value="admin" placeholder="Логин" autocomplete="username"><input id="p" type="password" placeholder="Пароль" autocomplete="current-password">
+<button onclick="login()">Войти</button><small id="err"></small></div></div>
+
+<div id="app" class="hidden">
+<aside>
+  <div class="brand side">SERVER<span>MANAGER</span></div>
+  <select id="nodeSel" class="nodesel" onchange="switchNode(this.value)" title="Сервер"></select>
+  <button data-page="dash">▦ <span>Панель</span></button>
+  <button data-page="system">▣ <span>Система</span></button>
+  <button data-page="apps">◈ <span>Приложения</span></button>
+  <button data-page="files">▤ <span>Файлы</span></button>
+  <button data-page="runtimes">⚙ <span>Runtime</span></button>
+  <button data-page="docker">◉ <span>Docker</span></button>
+  <button data-page="tasks">◷ <span>Задачи</span></button>
+  <button data-page="backups">◫ <span>Backup</span></button>
+  <button data-page="audit">☷ <span>Журнал</span></button>
+  <button data-page="users">☺ <span>Пользователи</span></button>
+  <button data-page="nodes">⌁ <span>Серверы</span></button>
+  <button data-page="settings">⚙ <span>Настройки</span></button>
+  <footer id="who"></footer>
+</aside>
+<main>
+  <header>
+    <div><h2 id="title">Панель</h2><small id="sub"></small></div>
+    <div class="head-actions">
+      <span class="headnav"><button class="btn" title="Назад (Alt+←, боковая кнопка мыши)" onclick="history.back()">‹</button><button class="btn" title="Вперёд (Alt+→)" onclick="history.forward()">›</button></span>
+      <button class="btn" title="Обновить" onclick="refreshCurrent()">↻</button>
+      <button class="primary" data-perm="apps.create" onclick="newApp()">+ Добавить приложение</button>
+    </div>
+  </header>
+  <div id="banner" class="banner" hidden>⚠ Пароль администратора не изменён (admin / admin). Смените его, пока панель не открыта в сети.<button class="link" onclick="page('settings')">Сменить пароль</button></div>
+  <section id="content"></section>
+</main>
+</div>
+<div id="modal" class="hidden"></div>
+
+<script src="/js/core.js"></script>
+<script src="/js/nodes.js"></script>
+<script src="/js/pages-apps.js"></script>
+<script src="/js/pages-misc.js"></script>
+<script src="/js/pages-tasks.js"></script>
+<script src="/js/pages-backups.js"></script>
+<script src="/js/pages-system.js"></script>
+<script src="/js/transfers.js"></script>
+<script src="/js/files.js"></script>
+<script src="/js/project-dialog.js"></script>
+<script src="/js/users.js"></script>
+<script src="/js/launcher.js"></script>
+<script src="/js/router.js"></script>
+</body>
+</html>
