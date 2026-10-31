@@ -140,6 +140,8 @@ async function show() {
     $('who').innerHTML = `${esc(me.username)}<br><small>${esc(roleTitle(me.role))}</small><br><button class="link" onclick="logout()">Выйти</button>`;
     await loadNodes();
     applyPermissions();
+    try { appCache = await api('/apps', { keepAcrossPages: true }); } catch { }
+    setNavBadges();
     connectWS();
     const route = location.hash ? parseRoute() : { page: firstAllowedPage(), params: {} };
     history.replaceState(history.state || {}, '', routeToHash(route.page, { ...route.params, tab: route.tab }));

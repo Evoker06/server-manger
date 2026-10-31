@@ -1,30 +1,204 @@
 // Страницы «Панель» и «Приложения»: карточки, консоль, логи, профили запуска, вкладки приложения.
 
+/* ================= Главная: показатели, приложения, график, серверы, события ================= */
+let dashState = { status: 'all', q: '', n: 0, gpu: null, disks: null, hist: { cpu: [], ram: [] }, busy: false };
+const DASH_HIST = 40; // ~2 минуты при опросе раз в 3 секунды
+
+const dashMetric = (id, label, cls) => `<div class="lm na" id="lmw_${id}"><span class="lml ${cls}">${label}</span><b id="lm_${id}">—</b><div class=lbar><i class="${cls}" id="lb_${id}" style="width:0"></i></div></div>`;
+function dashSetMetric(id, value) {
+  const wrap = $('lmw_' + id), text = $('lm_' + id), bar = $('lb_' + id);
+  if (!wrap) return;
+  const ok = value != null && !isNaN(value);
+  wrap.classList.toggle('na', !ok);
+  text.textContent = ok ? Math.round(value) + '%' : '—';
+  bar.style.width = ok ? Math.max(0, Math.min(100, value)) + '%' : '0';
+}
+
 async function dashboard() {
   clearInterval(statsTimer);
   appCache = await api('/apps');
-  const running = appCache.filter(x => x.running).length;
-  const cpu = appCache.reduce((n, x) => n + (x.running ? 1 : 0), 0);
-  $('content').innerHTML = `<div class=stats><div class=stat><small>Приложений</small><b>${appCache.length}</b></div><div class=stat><small>Запущено</small><b>${running}</b></div><div class=stat><small>Остановлено</small><b>${appCache.length - running}</b></div><div class=stat><small>Активных процессов</small><b>${cpu}</b></div></div><div class=sectionhead><h3>Процессы</h3><button class=btn onclick="page('apps')">Все приложения →</button></div><div id=cards class=grid>${appCache.slice(0, 8).map(appCard).join('') || empty('Приложений пока нет')}</div>`;
+  dashState = { status: 'all', q: '', n: 0, gpu: null, disks: null, hist: { cpu: [], ram: [] }, busy: false };
+  const taskCard = can('tasks.view') ? `<div class=kpi id=kpiTasks><div class=kpi-top><span>Задачи по расписанию</span><i class="kpi-ic amber">${ic('tasks')}</i></div><div class=kpi-val><b>—</b><small class=muted>включено</small></div><div class=kpi-foot><span>загрузка…</span></div></div>` : '';
+  $('content').innerHTML = `<div class=pagehead><div><h1>Главный экран панели</h1><p>Сводка по приложениям, серверам и нагрузке</p></div><button class=btn onclick="refreshCurrent()">${ic('refresh')} Обновить данные</button></div>
+  <div class=kpis>
+    <div class=kpi id=kpiApps></div>
+    <div class=kpi id=kpiSrv></div>
+    ${taskCard}
+    <div class=kpi id=kpiLoad><div class=kpi-top><span>Нагрузка системы</span><i class="kpi-ic green">${ic('cpu')}</i></div>
+      <div class=loadgrid>${dashMetric('cpu', 'CPU', 'c-blue')}${dashMetric('gpu', 'GPU', 'c-purple')}${dashMetric('ram', 'RAM', 'c-indigo')}${dashMetric('hdd', 'HDD', 'c-amber')}${dashMetric('ssd', 'SSD', 'c-teal')}</div>
+      <div class=kpi-foot><span id=loadinfo>—</span></div></div>
+  </div>
+  <div class=dashgrid>
+    <div class=dashcol>
+      <div class=panelbox>
+        <div class=pbhead><div><h3>Ключевые приложения и проекты</h3><small class=muted>Состояние и управление запуском</small></div><button class=pblink onclick="page('apps')">Все приложения (${appCache.length}) →</button></div>
+        <div class=dashtools>
+          <div class=seg id=dashSeg><button class=active data-s=all>Все</button><button data-s=running>Работают</button><button data-s=stopped>Остановлены</button></div>
+          <input id=dashQ placeholder="Быстрый поиск…" autocomplete=off>
+        </div>
+        <div class=tablewrap><table class=table><thead><tr><th>Проект</th><th>Статус</th><th>Процесс</th><th></th></tr></thead><tbody id=dashApps></tbody></table></div>
+      </div>
+      <div class=panelbox>
+        <div class=pbhead><div><h3>Мониторинг компьютера</h3><small class=muted>CPU и RAM с момента открытия страницы</small></div><span class=livemark>Live</span></div>
+        <div class=chartbox><canvas id=dashChart></canvas></div>
+        <div class=legend><span><i style="background:#3b82f6"></i>CPU</span><span><i style="background:#8b5cf6"></i>RAM</span></div>
+      </div>
+    </div>
+    <div class=dashcol>
+      <div class=panelbox><div class=pbhead><h3>Серверы</h3>${can('settings.manage') ? `<button class=pblink onclick="page('nodes')">Управление →</button>` : ''}</div><div class=srvlist id=dashSrv><span class=muted>Проверка связи…</span></div>${can('settings.manage') ? `<button class=addnode onclick="page('nodes');setTimeout(()=>nodeForm(),300)">+ Добавить сервер</button>` : ''}</div>
+      ${can('audit.view') ? `<div class=panelbox><div class=pbhead><h3>События</h3><button class=pblink onclick="page('audit')">Весь журнал →</button></div><div class=evlist id=dashEv><span class=muted>Загрузка…</span></div></div>` : ''}
+    </div>
+  </div>`;
+  $('dashSeg').onclick = e => {
+    const b = e.target.closest('button[data-s]');
+    if (!b) return;
+    dashState.status = b.dataset.s;
+    $('dashSeg').querySelectorAll('button').forEach(x => x.classList.toggle('active', x === b));
+    dashRenderApps();
+  };
+  $('dashQ').oninput = e => { dashState.q = e.target.value.toLowerCase(); dashRenderApps(); };
+  dashRenderApps();
+  dashLoadSide();
+  dashTick();
   pollCards();
 }
+
+/** Карточка «Приложения», таблица и счётчик в меню — из свежего appCache. */
+function dashRenderApps() {
+  const total = appCache.length, running = appCache.filter(a => a.running).length;
+  const kpi = $('kpiApps');
+  if (kpi) kpi.innerHTML = `<div class=kpi-top><span>Приложения и проекты</span><i class="kpi-ic blue">${ic('cube')}</i></div><div class=kpi-val><b>${total}</b><small class=muted>всего</small></div><div class=kpi-foot><span class=ok>${running} запущено</span><span>${total - running} остановлено</span></div>`;
+  setNavBadges();
+  const body = $('dashApps');
+  if (!body) return;
+  const rows = appCache.filter(a => (dashState.status === 'all' || (dashState.status === 'running') === !!a.running)
+    && (a.name + ' ' + (a.type || '')).toLowerCase().includes(dashState.q));
+  body.innerHTML = rows.slice(0, 12).map(a => `<tr><td><div class=pcell><i class="pico ${a.running ? 'on' : ''}">${ic('cube')}</i><div><b>${esc(a.name)}</b><small class=muted>${esc(a.type || 'auto')}</small></div></div></td>
+    <td><span class="pill ${a.running ? 'ok' : ''}"><i class=dot></i>${a.running ? 'Запущено' : 'Остановлено'}</span></td>
+    <td class=muted>PID ${a.pid || '—'} · ${a.port ? 'порт ' + a.port : 'порт не указан'}</td>
+    <td><div class=rowbtns>${a.running ? `<button class="btn stop" onclick="act(${a.id},'stop')">Стоп</button>` : `<button class="btn go" onclick="act(${a.id},'start')">Запуск</button>`}<button class=btn onclick="page('app:${a.id}')">Открыть</button></div></td></tr>`).join('')
+    || `<tr><td colspan=4 class=muted>${total ? 'Ничего не найдено.' : 'Приложений пока нет — добавьте первое.'}</td></tr>`;
+}
+
+/** Серверы и последние события — загружаются один раз при открытии страницы. */
+async function dashLoadSide() {
+  const hasLocal = !!document.querySelector('#nodeSel option[value=local]');
+  const list = [...(hasLocal ? [{ id: 'local', name: 'Эта панель' }] : []), ...nodeList];
+  const status = {};
+  try { for (const s of await api('/nodes/status')) status[s.id] = s; } catch { }
+  const srv = $('dashSrv');
+  if (srv) srv.innerHTML = list.map(n => {
+    const s = status[n.id], isLocal = n.id === 'local', ok = isLocal || (s && s.ok);
+    const info = isLocal ? 'локально' : s ? (s.ok ? `online · ${s.ms} мс` : esc(s.error || 'offline')) : 'нет данных';
+    return `<div class="srvitem ${ok ? '' : 'off'}"><div style="min-width:0"><b><i class="dot ${ok ? 'on' : 'bad'}"></i><span style="overflow:hidden;text-overflow:ellipsis">${esc(n.name)}</span>${String(n.id) === String(node) ? ' <small class=muted>(выбран)</small>' : ''}</b><small class=muted>${info}</small></div>${String(n.id) === String(node) ? '' : `<button class=btn onclick="switchNode(${jsArg(n.id)})">Открыть</button>`}</div>`;
+  }).join('') || '<span class=muted>Серверов нет</span>';
+  const online = list.filter(n => n.id === 'local' || (status[n.id] && status[n.id].ok)).length;
+  const k = $('kpiSrv');
+  if (k) k.innerHTML = `<div class=kpi-top><span>Серверы</span><i class="kpi-ic indigo">${ic('server')}</i></div><div class=kpi-val><b>${list.length}</b><small class=muted>${list.length === 1 ? 'сервер' : 'в панели'}</small></div><div class=kpi-foot><span class=ok>${online} онлайн</span><span class="${list.length - online ? 'no' : ''}">${list.length - online} офлайн</span></div>`;
+  if (can('tasks.view')) {
+    try {
+      const t = await api('/tasks'), on = t.filter(x => x.enabled).length, bad = t.filter(x => x.last_status && x.last_status !== 'ok').length;
+      const kt = $('kpiTasks');
+      if (kt) kt.innerHTML = `<div class=kpi-top><span>Задачи по расписанию</span><i class="kpi-ic amber">${ic('tasks')}</i></div><div class=kpi-val><b>${on}</b><small class=muted>включено</small></div><div class=kpi-foot><span class="${bad ? 'no' : 'ok'}">${bad ? bad + ' с ошибкой' : 'ошибок нет'}</span><span>всего ${t.length}</span></div>`;
+    } catch { }
+  }
+  if (can('audit.view') && $('dashEv')) {
+    try {
+      const ev = (await api('/audit')).slice(0, 6);
+      $('dashEv').innerHTML = ev.map(x => `<div class=evitem><i class=evic>${ic('activity')}</i><div><b>${esc(x.action)}</b><small class=muted>${esc(x.username)}${x.details ? ' · ' + esc(x.details) : ''}</small><small class=muted>${esc(x.created_at)}</small></div></div>`).join('') || '<span class=muted>Событий пока нет</span>';
+    } catch (e) { if ($('dashEv')) $('dashEv').innerHTML = `<span class=muted>${esc(e.message)}</span>`; }
+  }
+}
+
+/** Живые показатели: CPU/RAM каждые 3 с, GPU — каждые 6 с, диски — каждые 15 с. Чего система не сообщает, показывается как «—». */
+async function dashTick() {
+  if (!$('kpiLoad') || dashState.busy || document.hidden) return;
+  dashState.busy = true;
+  const n = dashState.n++;
+  try {
+    const s = await api('/system');
+    const cpu = +s.cpu || 0, ram = s.memTotal ? s.memUsed / s.memTotal * 100 : 0;
+    dashSetMetric('cpu', cpu);
+    dashSetMetric('ram', ram);
+    const info = $('loadinfo');
+    if (info) info.textContent = `${s.cores} потоков · RAM ${fmtSize(s.memUsed)} из ${fmtSize(s.memTotal)}`;
+    const h = dashState.hist;
+    h.cpu.push(cpu); h.ram.push(ram);
+    if (h.cpu.length > DASH_HIST) { h.cpu.shift(); h.ram.shift(); }
+    dashDrawChart();
+    if (can('system.view')) {
+      if (n % 2 === 0) {
+        try {
+          const l = await api('/hw/live?gpu=1');
+          const g = (l.gpus || []).find(x => x.load != null);
+          dashState.gpu = g ? g.load : null;
+        } catch { dashState.gpu = null; }
+      }
+      dashSetMetric('gpu', dashState.gpu);
+      if (n % 5 === 0) {
+        try {
+          const d = await api('/hw/disks?mode=space');
+          const use = types => {
+            const parts = d.disks.filter(k => types.includes(k.type)).flatMap(k => k.partitions).filter(p => p.accessible && p.size);
+            const size = parts.reduce((a, p) => a + p.size, 0);
+            return size ? parts.reduce((a, p) => a + p.used, 0) / size * 100 : null;
+          };
+          dashState.disks = { hdd: use(['HDD']), ssd: use(['SSD', 'NVMe']) };
+        } catch { dashState.disks = null; }
+      }
+      dashSetMetric('hdd', dashState.disks && dashState.disks.hdd);
+      dashSetMetric('ssd', dashState.disks && dashState.disks.ssd);
+    }
+  } catch { } finally { dashState.busy = false; }
+}
+
+/** График CPU/RAM на обычном canvas (без внешних библиотек), цвета берутся из текущей темы. */
+function dashDrawChart() {
+  const c = $('dashChart');
+  if (!c) return;
+  const ratio = window.devicePixelRatio || 1, w = c.clientWidth, h = c.clientHeight;
+  if (!w || !h) return;
+  c.width = w * ratio; c.height = h * ratio;
+  const g = c.getContext('2d');
+  g.scale(ratio, ratio);
+  const css = getComputedStyle(document.documentElement), grid = css.getPropertyValue('--line').trim() || '#1f2937', txt = css.getPropertyValue('--muted').trim() || '#9ca3af';
+  const L = 34, R = 8, T = 8, B = 8, pw = w - L - R, ph = h - T - B;
+  g.font = '10px Inter, Segoe UI, sans-serif'; g.textBaseline = 'middle'; g.lineWidth = 1;
+  for (const v of [0, 25, 50, 75, 100]) {
+    const y = T + ph - ph * v / 100;
+    g.strokeStyle = grid; g.beginPath(); g.moveTo(L, y); g.lineTo(w - R, y); g.stroke();
+    g.fillStyle = txt; g.fillText(v + '%', 2, y);
+  }
+  const line = (arr, color, fill) => {
+    if (arr.length < 2) return;
+    const step = pw / (DASH_HIST - 1), x0 = L + pw - step * (arr.length - 1);
+    g.beginPath();
+    arr.forEach((v, i) => { const x = x0 + i * step, y = T + ph - ph * Math.min(100, Math.max(0, v)) / 100; i ? g.lineTo(x, y) : g.moveTo(x, y); });
+    g.strokeStyle = color; g.lineWidth = 2; g.lineJoin = 'round'; g.stroke();
+    if (fill) {
+      g.lineTo(x0 + (arr.length - 1) * step, T + ph); g.lineTo(x0, T + ph); g.closePath();
+      g.fillStyle = fill; g.fill();
+    }
+  };
+  line(dashState.hist.ram, '#8b5cf6');
+  line(dashState.hist.cpu, '#3b82f6', 'rgba(59,130,246,.12)');
+}
+window.addEventListener('resize', () => { if (typeof dashDrawChart === 'function') dashDrawChart(); });
+
 function appCard(a) {
   return `<div class=card><div class=split><div><h3>${esc(a.name)}</h3><small>${esc(a.type || 'auto')}</small></div><span class="status ${a.running ? 'good' : 'muted'}"><i class="dot ${a.running ? 'on' : ''}"></i>${a.running ? 'Запущено' : 'Остановлено'}</span></div><div class=appmeta>PID: ${a.pid || '—'} · ${a.port ? 'порт ' + a.port : 'порт не указан'}</div><div class=actions><button class=primary onclick="act(${a.id},'start')" ${a.running ? 'disabled' : ''}>Запуск</button><button class=btn onclick="act(${a.id},'restart')">↻</button><button class=btn onclick="act(${a.id},'stop')" ${!a.running ? 'disabled' : ''}>Стоп</button><button class=btn onclick="page('app:${a.id}')">Открыть</button></div></div>`;
 }
 async function pollCards() {
   clearInterval(statsTimer);
-  if (currentPage === 'dash')
-    updateSys();
   statsTimer = setInterval(async () => {
     if (document.hidden || (currentPage !== 'dash' && currentPage !== 'apps'))
       return;
     try {
       appCache = await api('/apps');
+      setNavBadges();
       if (currentPage === 'dash') {
-        updateSys();
-        const el = $('cards');
-        if (el)
-          el.innerHTML = appCache.slice(0, 8).map(appCard).join('') || empty('Приложений пока нет');
+        dashRenderApps();
+        dashTick();
       }
       else if ($('appgrid')) {
         const q = ($('search')?.value || '').toLowerCase();

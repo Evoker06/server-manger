@@ -1,40 +1,49 @@
 <!doctype html>
-<html lang="ru">
+<html lang="ru" data-theme="dark">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Server Manager</title>
+<script>try{document.documentElement.dataset.theme=localStorage.sm_theme||'dark'}catch(e){}</script>
 <link rel="stylesheet" href="/style.css">
 </head>
 <body>
-<div id="login" class="login"><div class="loginbox"><div class="brand">SERVER<span>MANAGER</span></div><h1>Вход</h1>
+<div id="login" class="login"><div class="loginbox"><div class="brand"><i class="logo" data-ic="grid"></i><b>Server<span>Manager</span></b></div><h1>Вход</h1>
 <input id="u" value="admin" placeholder="Логин" autocomplete="username"><input id="p" type="password" placeholder="Пароль" autocomplete="current-password">
-<button onclick="login()">Войти</button><small id="err"></small></div></div>
+<button class="primary" onclick="login()">Войти</button><small id="err"></small></div></div>
 
 <div id="app" class="hidden">
-<aside>
-  <div class="brand side">SERVER<span>MANAGER</span></div>
+<div class="sidebackdrop" onclick="toggleSidebar()"></div>
+<aside id="sidebar">
+  <div class="brand side"><i class="logo" data-ic="grid"></i><b>Server<span>Manager</span></b></div>
   <select id="nodeSel" class="nodesel" onchange="switchNode(this.value)" title="Сервер"></select>
-  <button data-page="dash">▦ <span>Панель</span></button>
-  <button data-page="system">▣ <span>Система</span></button>
-  <button data-page="apps">◈ <span>Приложения</span></button>
-  <button data-page="files">▤ <span>Файлы</span></button>
-  <button data-page="runtimes">⚙ <span>Runtime</span></button>
-  <button data-page="docker">◉ <span>Docker</span></button>
-  <button data-page="tasks">◷ <span>Задачи</span></button>
-  <button data-page="backups">◫ <span>Backup</span></button>
-  <button data-page="audit">☷ <span>Журнал</span></button>
-  <button data-page="users">☺ <span>Пользователи</span></button>
-  <button data-page="nodes">⌁ <span>Серверы</span></button>
-  <button data-page="settings">⚙ <span>Настройки</span></button>
+  <div class="navlabel">Основная навигация</div>
+  <nav>
+    <button data-page="dash"><i class="ic" data-ic="pie"></i><span>Панель</span></button>
+    <button data-page="system"><i class="ic" data-ic="cpu"></i><span>Система</span></button>
+    <button data-page="apps"><i class="ic" data-ic="cube"></i><span>Приложения</span><em id="nb-apps"></em></button>
+    <button data-page="files"><i class="ic" data-ic="folder"></i><span>Файлы</span></button>
+    <button data-page="runtimes"><i class="ic" data-ic="terminal"></i><span>Runtime</span></button>
+    <button data-page="docker"><i class="ic" data-ic="layers"></i><span>Docker</span></button>
+    <button data-page="tasks"><i class="ic" data-ic="tasks"></i><span>Задачи</span></button>
+    <button data-page="backups"><i class="ic" data-ic="backup"></i><span>Backup</span></button>
+    <button data-page="audit"><i class="ic" data-ic="doc"></i><span>Журнал</span></button>
+    <button data-page="users"><i class="ic" data-ic="users"></i><span>Пользователи</span></button>
+    <button data-page="nodes"><i class="ic" data-ic="server"></i><span>Серверы</span><em id="nb-nodes"></em></button>
+    <button data-page="settings"><i class="ic" data-ic="sliders"></i><span>Настройки</span></button>
+  </nav>
   <footer id="who"></footer>
 </aside>
 <main>
   <header>
-    <div><h2 id="title">Панель</h2><small id="sub"></small></div>
+    <div class="hleft">
+      <button class="iconbtn menu-btn" title="Меню" onclick="toggleSidebar()"><i class="ic" data-ic="menu"></i></button>
+      <div><h2 id="title">Панель</h2><small id="sub"></small></div>
+    </div>
     <div class="head-actions">
       <span class="headnav"><button class="btn" title="Назад (Alt+←, боковая кнопка мыши)" onclick="history.back()">‹</button><button class="btn" title="Вперёд (Alt+→)" onclick="history.forward()">›</button></span>
-      <button class="btn" title="Обновить" onclick="refreshCurrent()">↻</button>
+      <button class="iconbtn" title="Обновить" onclick="refreshCurrent()"><i class="ic" data-ic="refresh"></i></button>
+      <button class="iconbtn theme-btn" title="Сменить тему" onclick="toggleTheme()"><i class="ic sun" data-ic="sun"></i><i class="ic moon" data-ic="moon"></i></button>
       <button class="primary" data-perm="apps.create" onclick="newApp()">+ Добавить приложение</button>
     </div>
   </header>
