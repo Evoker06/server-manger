@@ -21,6 +21,7 @@ const PAGES = {
 };
 const SCROLL_SAVE_DELAY_MS = 150;
 const SCROLL_RESTORE_RETRY_MS = [0, 200, 600];
+if ('scrollRestoration' in history) history.scrollRestoration = 'manual'; // позицию возвращаем сами: содержимое грузится асинхронно
 
 /* ---------- адрес ⇄ раздел ---------- */
 
@@ -30,14 +31,18 @@ function parseRoute(hash = location.hash) {
   const [pathPart, query = ''] = text.split('?');
   const parts = pathPart.split('/').filter(Boolean);
   const params = Object.fromEntries(new URLSearchParams(query));
-  if (parts[0] === 'app' && /^\d+$/.test(parts[1] || '')) return { page: 'app:' + parts[1], tab: parts[2] || 'overview', params };
+  if (parts[0] === 'app' && /^\d+$/.test(parts[1] || '')) {
+    const tab = parts[2] || 'overview';
+    return { page: 'app:' + parts[1], tab, params: { ...params, tab } };
+  }
   return { page: PAGES[parts[0]] ? parts[0] : firstAllowedPage(), params };
 }
 
 function routeToHash(pageName, params = {}) {
-  const clean = Object.entries(params).filter(([, value]) => value !== undefined && value !== null && value !== '');
+  const isApp = String(pageName).startsWith('app:');
+  const clean = Object.entries(params).filter(([key, value]) => value !== undefined && value !== null && value !== '' && !(isApp && key === 'tab'));
   const query = clean.length ? '?' + new URLSearchParams(clean).toString() : '';
-  if (String(pageName).startsWith('app:')) return `#/app/${pageName.split(':')[1]}/${params.tab || 'overview'}`;
+  if (isApp) return `#/app/${pageName.split(':')[1]}/${params.tab || 'overview'}${query}`;
   return `#/${pageName}${query}`;
 }
 
@@ -53,7 +58,10 @@ let routeParams = {}; // параметры текущего раздела (д�
 
 /** Запоминаем прокрутку страницы в записи истории — чтобы вернуться на то же место. */
 let scrollTimer = null;
+let scrollSavePaused = false; // пока страница перерисовывается, высота прыгает и scrollY = 0 — это не выбор пользователя
+let scrollRestoreTimers = [];
 window.addEventListener('scroll', () => {
+  if (scrollSavePaused) return;
   clearTimeout(scrollTimer);
   scrollTimer = setTimeout(() => history.replaceState({ ...(history.state || {}), scrollY: window.scrollY }, ''), SCROLL_SAVE_DELAY_MS);
 }, { passive: true });
@@ -63,7 +71,8 @@ function page(name, params = {}, options = {}) {
   const target = String(name).startsWith('app:') ? name : (PAGES[name] ? name : firstAllowedPage());
   const hash = routeToHash(target, params);
   if (location.hash !== hash) {
-    history[options.replace ? 'replaceState' : 'pushState']({ scrollY: 0 }, '', hash);
+    if (!options.replace) history.replaceState({ ...(history.state || {}), scrollY: window.scrollY }, ''); // запомнить место на уходящей странице
+    history[options.replace ? 'replaceState' : 'pushState']({ smGuarded: true, scrollY: 0 }, '', hash);
   }
   renderRoute({ page: target, tab: params.tab, params });
 }
@@ -76,31 +85,74 @@ function updateRoute(name, params = {}) {
 }
 
 async function renderRoute(route, { restoreScroll = false } = {}) {
-  navigationId++;
+  const myNavigation = ++navigationId;
+  const savedY = restoreScroll ? (history.state && history.state.scrollY) || 0 : 0; // читаем ДО перерисовки
+  scrollSavePaused = true;
+  clearTimeout(scrollTimer);
+  scrollRestoreTimers.forEach(clearTimeout);
+  scrollRestoreTimers = [];
   clearInterval(statsTimer);
   if (typeof closeModal === 'function') closeModal();
   currentPage = route.page;
   routeParams = route.params || {};
+  renderedHash = routeToHash(route.page, route.params || {});
   const name = route.page;
-  if (name.startsWith('app:')) {
-    document.querySelectorAll('aside [data-page]').forEach(b => b.classList.toggle('active', b.dataset.page === 'apps'));
-    $('title').textContent = 'Приложение';
-    $('sub').textContent = 'Управление приложением';
-    await appWorkspace(Number(name.split(':')[1]), route.tab || 'overview');
-  } else {
-    const entry = PAGES[name];
-    if (!isAllowed(name)) { page(firstAllowedPage(), {}, { replace: true }); return; }
-    $('title').textContent = entry.title;
-    $('sub').textContent = entry.sub;
-    document.querySelectorAll('aside [data-page]').forEach(b => b.classList.toggle('active', b.dataset.page === name));
-    await entry.render();
+  try {
+    if (name.startsWith('app:')) {
+      document.querySelectorAll('aside [data-page]').forEach(b => b.classList.toggle('active', b.dataset.page === 'apps'));
+      $('title').textContent = 'Приложение';
+      $('sub').textContent = 'Управление приложением';
+      await appWorkspace(Number(name.split(':')[1]), route.tab || 'overview');
+    } else {
+      const entry = PAGES[name];
+      if (!isAllowed(name)) { page(firstAllowedPage(), {}, { replace: true }); return; }
+      $('title').textContent = entry.title;
+      $('sub').textContent = entry.sub;
+      document.querySelectorAll('aside [data-page]').forEach(b => b.classList.toggle('active', b.dataset.page === name));
+      await entry.render();
+    }
+  } finally {
+    if (myNavigation === navigationId) { // если пользователь уже ушёл дальше, чужую прокрутку не трогаем
+      scrollRestoreTimers = SCROLL_RESTORE_RETRY_MS.map(delay => setTimeout(() => window.scrollTo(0, savedY), delay));
+      scrollRestoreTimers.push(setTimeout(() => { scrollSavePaused = false; }, Math.max(...SCROLL_RESTORE_RETRY_MS) + 100));
+    }
   }
-  const y = restoreScroll ? (history.state && history.state.scrollY) || 0 : 0;
-  SCROLL_RESTORE_RETRY_MS.forEach(delay => setTimeout(() => window.scrollTo(0, y), delay));
+}
+
+/* ---------- защита от случайного выхода из панели ---------- */
+// В начале истории панели стоит служебная запись. «Назад» на неё не уводит с сайта сразу:
+// панель показывает подсказку и остаётся на месте; повторное «Назад» в течение нескольких секунд — обычный выход.
+const EXIT_GUARD = true;
+const EXIT_CONFIRM_MS = 3000;
+let renderedHash = '';
+let exitArmedUntil = 0;
+let returningFromGuard = false;
+
+function installExitGuard() {
+  if (!EXIT_GUARD || (history.state && history.state.smGuarded)) return; // уже установлена (например, после F5)
+  const hash = location.hash;
+  history.replaceState({ smRoot: true }, '', hash);                          // нижняя служебная запись
+  history.pushState({ smGuarded: true, scrollY: window.scrollY }, '', hash); // рабочая запись
 }
 
 // «Назад»/«вперёд» браузера, боковые кнопки мыши, Alt+←/→
-window.addEventListener('popstate', () => renderRoute(parseRoute(), { restoreScroll: true }));
+window.addEventListener('popstate', event => {
+  if (!me) return; // вход ещё не выполнен
+  if (event.state && event.state.smRoot) { // дошли до начала истории панели
+    if (Date.now() < exitArmedUntil) { exitArmedUntil = 0; history.back(); return; } // второе «Назад» подряд — выходим
+    exitArmedUntil = Date.now() + EXIT_CONFIRM_MS;
+    returningFromGuard = true;
+    toast('Это начало истории панели. Нажмите «Назад» ещё раз, чтобы выйти');
+    history.forward();
+    return;
+  }
+  const route = parseRoute();
+  if (returningFromGuard) { // вернулись на ту же страницу: перерисовка не нужна
+    returningFromGuard = false;
+    if (routeToHash(route.page, route.params) === renderedHash) return;
+  }
+  renderRoute(route, { restoreScroll: true });
+});
 
 const refreshCurrent = () => renderRoute(parseRoute());
 
@@ -145,6 +197,7 @@ async function show() {
     connectWS();
     const route = location.hash ? parseRoute() : { page: firstAllowedPage(), params: {} };
     history.replaceState(history.state || {}, '', routeToHash(route.page, { ...route.params, tab: route.tab }));
+    installExitGuard();
     renderRoute(route, { restoreScroll: true });
   } catch {
     localStorage.removeItem('sm_token');

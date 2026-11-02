@@ -680,7 +680,6 @@ async function profDelete(appId, pid) {
 /* ---------- рабочее пространство проекта ---------- */
 let wsTab = 'overview';
 async function appWorkspace(id, tab = 'overview') {
-  updateRoute('app:' + id, { tab }); // адрес вкладки — в истории браузера
   activeAppId = id;
   wsTab = tab;
   clearInterval(statsTimer);
@@ -698,9 +697,11 @@ async function appWorkspace(id, tab = 'overview') {
   const op = can('apps.control') || can('apps.restart'), adm = can('apps.edit');
   const nav = `<div class=toolbar><button class=btn onclick="page('apps')">← Приложения</button>${op ? `<button class=primary onclick="act(${id},'start')" ${a.running ? 'disabled' : ''}>Запуск</button><button class=btn onclick="act(${id},'restart')">↻ Перезапуск</button><button class=btn onclick="act(${id},'stop')" ${!a.running ? 'disabled' : ''}>Стоп</button>` : ''}</div>`;
   const T = [['overview', 'Обзор', 1], ['console', 'Консоль', can('logs.view')], ['files', 'Файлы', can('files.view')], ['profiles', 'Профили', op], ['backups', 'Backup', can('backups.view')], ['logs', 'Логи', can('logs.view')], ['settings', 'Настройки', adm]].filter(t => t[2]);
-  if (!T.some(t => t[0] === tab))
+  if (!T.some(t => t[0] === tab)) {
     tab = wsTab = 'overview';
-  const tabs = `<div class=tabbar>${T.map(t => `<button class="tab ${tab === t[0] ? 'active' : ''}" onclick="appWorkspace(${id},'${t[0]}')">${t[1]}</button>`).join('')}</div>`;
+    updateRoute('app:' + id, { tab }); // вкладка недоступна — подменяем адрес без новой записи в истории
+  }
+  const tabs = `<div class=tabbar>${T.map(t => `<button class="tab ${tab === t[0] ? 'active' : ''}" onclick="page('app:${id}',{tab:'${t[0]}'})">${t[1]}</button>`).join('')}</div>`;
   let body = '', after = null;
   try {
     if (tab === 'overview') {
@@ -720,7 +721,7 @@ async function appWorkspace(id, tab = 'overview') {
     else if (tab === 'files') {
       body = '<div id=fmhost></div>';
       after = () => {
-        mountFileManager('fmhost', { scope: { app: id }, rootLabel: a.name });
+        mountFileManager('fmhost', { scope: { app: id }, rootLabel: a.name, path: (routeParams && routeParams.path) || '', routed: true, routeName: 'app:' + id });
       };
     }
     else if (tab === 'profiles')
@@ -735,7 +736,7 @@ async function appWorkspace(id, tab = 'overview') {
       };
     }
     else {
-      body = appForm(a) + `<div class=actions style="margin-top:16px"><button class=btn onclick="appWorkspace(${id},'backups')">Backup…</button><button class="btn bad" onclick="deleteApp(${id})">Удалить приложение</button></div>`;
+      body = appForm(a) + `<div class=actions style="margin-top:16px"><button class=btn onclick="page('app:${id}',{tab:'backups'})">Backup…</button><button class="btn bad" onclick="deleteApp(${id})">Удалить приложение</button></div>`;
       after = () => lbMount(a);
     }
   }

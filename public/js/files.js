@@ -28,18 +28,18 @@ async function files() {
   const params = routeParams || {};
   const scope = {};
   if (params.disk && can('files.disks')) scope.disk = params.disk;
-  await mountFileManager('content', { scope, rootLabel: scope.disk || 'Хранилище', path: params.path || '', routed: true });
+  await mountFileManager('content', { scope, rootLabel: scope.disk || 'Хранилище', path: params.path || '', routed: true, routeName: 'files' });
 }
 
 /** Открыть раздел «Файлы» на нужном диске (кнопка на странице «Система»). */
 function filesOpenDisk(mount) { page('files', { disk: mount }); }
 
 /** Подключает файловый менеджер к элементу страницы. scope: {} — хранилище, {app: 5} — папка приложения, {disk: 'D:\\'} — диск. */
-async function mountFileManager(hostId, { scope = {}, rootLabel = 'Хранилище', path = '', routed = false } = {}) {
+async function mountFileManager(hostId, { scope = {}, rootLabel = 'Хранилище', path = '', routed = false, routeName = 'files' } = {}) {
   const host = $(hostId);
   if (!host) return;
   fm = {
-    host, hostId, scope, rootLabel, path, routed, entries: [], total: 0, loaded: 0, selection: new Set(), anchor: null,
+    host, hostId, scope, rootLabel, path, routed, routeName, entries: [], total: 0, loaded: 0, selection: new Set(), anchor: null,
     sort: localStorage.sm_fm_sort || 'name', order: localStorage.sm_fm_order || 'asc', view: localStorage.sm_fm_view || 'list',
     search: '', results: null, requestId: 0, error: '', loading: true,
   };
@@ -339,8 +339,13 @@ window.addEventListener('transfers:done', () => { if (fm && document.body.contai
 
 /* =========================== действия ============================ */
 
+/** Адрес текущего файлового менеджера: страница «Файлы» (#/files?path=…&disk=…) или вкладка «Файлы» приложения (#/app/5/files?path=…). */
+function fmRouteParams(path, disk = fm.scope.disk) {
+  return fm.routeName === 'files' ? { path, disk } : { tab: 'files', path };
+}
 function fmGo(path) {
-  if (fm.routed) { page('files', { path, disk: fm.scope.disk }); return; } // у страницы «Файлы» папка — часть адреса (работает «Назад»)
+  if (path === fm.path && !fm.results && !fm.search) return; // уже здесь: лишнюю запись в истории не создаём
+  if (fm.routed) { page(fm.routeName, fmRouteParams(path)); return; } // папка — часть адреса, поэтому «Назад» возвращает в предыдущую папку
   fm.path = path; fm.search = ''; fm.results = null; fmLoad();
 }
 function fmSort(key) {
@@ -350,7 +355,7 @@ function fmSort(key) {
   fmLoad();
 }
 function fmChangeScope(mount) {
-  if (fm.routed) page('files', { disk: mount });
+  if (fm.routed && fm.routeName === 'files') page('files', { disk: mount });
   else { fm.scope = mount ? { disk: mount } : {}; fm.rootLabel = mount || 'Хранилище'; fm.path = ''; fmLoad(); }
 }
 async function fmOpenKey(key) {
